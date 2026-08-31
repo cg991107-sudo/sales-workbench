@@ -7,11 +7,19 @@
   <link rel="stylesheet" href="styles.css">
   <style>.weekly-input textarea{width:100%;min-height:76px;border:1px solid #e1e7f0;border-radius:6px;padding:8px;resize:vertical}.weekly-input input[type=file]{max-width:100%}.weekly-input td.group{vertical-align:middle}</style>
   <style>.login-page{min-height:100vh;background:#f4f6fa;display:grid;place-items:center}.login-card{width:min(400px,calc(100% - 32px));background:#fff;border:1px solid #e1e7f0;border-radius:14px;padding:30px;box-shadow:0 12px 35px #17233f12}.login-card h1{margin:24px 0 4px}.login-card p{color:#687386;margin-top:0}.login-card .field{margin:14px 0}.login-card input{width:100%;border:1px solid #e1e7f0;border-radius:6px;padding:10px}.login-error{color:#c0392b;min-height:22px;margin:8px 0}</style>
+<style>
+.login-page{min-height:100vh!important;background:linear-gradient(115deg,#eef5ff 0%,#f8faff 48%,#fff 48%,#fff 100%)!important;display:grid!important;grid-template-columns:minmax(380px,1fr) minmax(420px,520px)!important;align-items:center!important;gap:7vw!important;padding:7vh 10vw!important;place-items:initial!important}
+.login-visual{min-height:610px;display:flex;flex-direction:column;justify-content:space-between;padding:10px 0}.visual-brand{display:flex;align-items:center;gap:12px;font-size:20px;font-weight:700;color:#17233f}.visual-copy{margin-top:-50px}.eyebrow{color:#2864e8;font-size:12px;font-weight:700;letter-spacing:1.4px}.visual-copy h1{font-size:48px;line-height:1.22;letter-spacing:-2px;margin:22px 0 18px;color:#17233f}.visual-copy h1 em{font-style:normal;background:linear-gradient(90deg,#2864e8,#6848d8);-webkit-background-clip:text;background-clip:text;color:transparent}.visual-copy p{font-size:17px;line-height:2;color:#71809b}.visual-foot{color:#9aa8bd;font-size:13px;letter-spacing:2px}.login-card{width:100%!important;border:1px solid #e2e9f4!important;border-radius:20px!important;padding:42px 44px!important;box-shadow:0 20px 60px #23447d14!important}.login-card .brand{padding:0 0 18px}.login-card h1{font-size:28px;margin:18px 0 5px}.login-card p{color:#758198;margin:0 0 28px}.login-card .field{margin:18px 0}.login-card .field label{color:#53617a;font-weight:600}.login-card input{width:100%;border:1px solid #dfe6f1;border-radius:9px;padding:12px 13px;margin-top:7px;background:#fbfcff}.login-card small{display:block;text-align:center;color:#a0aabd;margin-top:20px}@media(max-width:850px){.login-page{display:block!important;padding:28px 20px!important;background:#f5f7fb!important}.login-visual{min-height:auto;padding-bottom:28px}.visual-copy{margin:36px 0 0}.visual-copy h1{font-size:36px}.visual-copy p,.visual-foot{display:none}.login-card{max-width:520px;margin:auto;padding:30px 24px!important}}
+</style>
+<style>
+.mark{background:linear-gradient(135deg,#f04444,#c91f2b)!important;box-shadow:0 5px 12px #e8323233!important}.nav button:hover,.nav button.active{background:#fff0f0;color:#df2935}.btn.primary{background:linear-gradient(135deg,#ed3b3b,#c91f2b);border-color:#df2935;box-shadow:0 5px 12px #e832322b}.eyebrow{color:#df2935}.visual-copy h1 em{background:linear-gradient(90deg,#e83232,#c91f2b);-webkit-background-clip:text;background-clip:text;color:transparent}
+</style>
+<style>.esign-logo{display:inline-flex;align-items:center;color:#df2935;font-weight:800;font-size:20px;letter-spacing:-1px;line-height:1}.esign-logo::before{content:'';display:inline-block;width:8px;height:8px;margin-right:3px;border-radius:50%;background:#df2935;box-shadow:5px 0 0 #f05a5a}.visual-brand .esign-logo{font-size:24px}.login-card .esign-logo{font-size:22px}</style>
 </head>
 <body>
   <div class="app">
     <aside class="side">
-      <div class="brand"><b class="mark">S</b><strong>销售工作台</strong></div>
+      <div class="brand"><b class="esign-logo" aria-label="e签宝">e签宝</b><strong>销售工作台</strong></div>
       <nav class="nav">
         <div class="nav-label">活动经营</div>
         <button data-page="dashboard">⌂　数据看板</button>
