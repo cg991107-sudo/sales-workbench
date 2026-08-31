@@ -127,9 +127,15 @@ class Handler(BaseHTTPRequestHandler):
                 for a in acts:
                     a.update(date=a.get("event_date", ""), type=a.get("event_type", ""), people=a.get("participants", 0))
                 for a in acts: a["followUps"]=rows(c,"SELECT follow_date date,wechat,leads,deals,note FROM followups WHERE activity_id=? ORDER BY id",(a["id"],))
-                reps=rows(c,"SELECT user_name,payload,submitted FROM reports ORDER BY report_date DESC"); reports={r["user_name"]:{**json.loads(r["payload"]),"submitted":bool(r["submitted"])} for r in reps}
+                reps=rows(c,"SELECT user_name,report_date,payload,submitted FROM reports ORDER BY report_date DESC"); reports={}; report_dates={}; report_history=[]
+                for r in reps:
+                    try: payload=json.loads(r["payload"])
+                    except (TypeError,ValueError,json.JSONDecodeError): payload={}
+                    report_history.append({"user":r["user_name"],"date":r["report_date"],"payload":payload,"submitted":bool(r["submitted"])})
+                    reports.setdefault(r["user_name"],{**payload,"submitted":bool(r["submitted"])})
+                    report_dates.setdefault(r["user_name"],r["report_date"])
                 people=rows(c,"SELECT display_name name FROM users WHERE role='sales' AND active=1 ORDER BY id")
-                self.send_json({"associations":[x for x in org if x["kind"]=="association"],"partners":[x for x in org if x["kind"]=="partner"],"activities":acts,"reports":reports,"people":[x["name"] for x in people]}); return
+                self.send_json({"associations":[x for x in org if x["kind"]=="association"],"partners":[x for x in org if x["kind"]=="partner"],"activities":acts,"reports":reports,"reportDates":report_dates,"reportHistory":report_history,"people":[x["name"] for x in people]}); return
         if path.startswith("/uploads/"):
             p=(UPLOADS/path.removeprefix("/uploads/")).resolve()
             if UPLOADS in p.parents and p.exists(): self.send_file(p); return
