@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>销售工作台</title>
+  <link rel="stylesheet" href="styles.css">
+  <style>.weekly-input textarea{width:100%;min-height:76px;border:1px solid #e1e7f0;border-radius:6px;padding:8px;resize:vertical}.weekly-input input[type=file]{max-width:100%}.weekly-input td.group{vertical-align:middle}</style>
+  <style>.login-page{min-height:100vh;background:#f4f6fa;display:grid;place-items:center}.login-card{width:min(400px,calc(100% - 32px));background:#fff;border:1px solid #e1e7f0;border-radius:14px;padding:30px;box-shadow:0 12px 35px #17233f12}.login-card h1{margin:24px 0 4px}.login-card p{color:#687386;margin-top:0}.login-card .field{margin:14px 0}.login-card input{width:100%;border:1px solid #e1e7f0;border-radius:6px;padding:10px}.login-error{color:#c0392b;min-height:22px;margin:8px 0}</style>
+</head>
+<body>
+  <div class="app">
+    <aside class="side">
+      <div class="brand"><b class="mark">S</b><strong>销售工作台</strong></div>
+      <nav class="nav">
+        <div class="nav-label">活动经营</div>
+        <button data-page="dashboard">⌂　数据看板</button>
+        <button data-page="associations">◎　协会管理</button>
+        <button data-page="partners">◇　生态伙伴</button>
+        <button data-page="association-activities">▤　协会活动明细</button>
+        <button data-page="partner-visits">▥　生态拜访明细</button>
+        <div class="nav-label">周会记录</div>
+        <a class="nav-link" style="display:block;color:#dbe5fb;text-decoration:none" href="weekly-report.html">✎　填写本周周报</a>
+        <button data-page="weekly-summary">☷　周报汇总</button>
+        <button data-page="meeting">▶　周会汇报</button>
+        <button data-page="ai">✦　AI分析</button>
+        <button data-page="users" id="users-nav">♙　账号管理</button>
+        <div class="nav-label">后续扩展</div>
+        <button data-page="todo">＋　待办管理</button>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="top"><span>销售工作台 / <span id="crumb">数据看板</span></span><div class="user"><span id="user-name">未登录</span><i id="avatar">?</i><button class="btn" data-action="logout">退出登录</button></div></header>
+      <div id="content"></div>
+    </main>
+  </div>
+  <div id="modal" class="modal hidden"></div><div id="toast" class="toast hidden"></div>
+  <script src="app.js?v=20260828-3"></script>
+</body>
+</html>

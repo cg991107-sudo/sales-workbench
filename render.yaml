@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: sales-workbench
+    runtime: python
+    plan: starter
+    buildCommand: ""
+    startCommand: "python3 server.py"
+    autoDeploy: true
+    healthCheckPath: /
+    envVars:
+      - key: SALES_WORKBENCH_DATA_DIR
+        value: /data
+      - key: SALES_WORKBENCH_PORT
+        value: 10000
+      - key: SALES_WORKBENCH_BOOTSTRAP_PASSWORD
+        sync: false
+    disk:
+      name: sales-workbench-data
+      mountPath: /data
+      sizeGB: 1
