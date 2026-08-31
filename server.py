@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 import csv, hashlib, io, json, mimetypes, os, secrets, sqlite3, time
+from urllib import request as http_request, error as http_error
 
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = Path(os.getenv("SALES_WORKBENCH_DATA_DIR", str(ROOT)))
@@ -71,6 +72,29 @@ def cookie_value(headers,name):
         if k==name: return v
     return ""
 def session_user(handler): return SESSIONS.get(cookie_value(handler.headers,"sid"))
+
+def qwen_analyze(payload):
+    api_key=os.getenv("DASHSCOPE_API_KEY") or os.getenv("AI_API_KEY")
+    if not api_key: raise RuntimeError("未配置千问 API Key，请在 Render 环境变量中配置 DASHSCOPE_API_KEY")
+    base_url=os.getenv("AI_BASE_URL","https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
+    model=os.getenv("AI_MODEL","qwen-plus")
+    system="""你是销售管理者的经营分析助手。只能依据输入数据分析，不得编造客户、金额、日期或项目进展。请输出严格 JSON，不要 Markdown 代码块，结构为：summary（字符串）、focus（数组，每项含 direction/finding/action/evidence）、questions（字符串数组）、actions（字符串数组）、data_gaps（字符串数组）。重点回答管理者应该关注什么、为什么关注、下一步怎么管。"""
+    body={"model":model,"temperature":0.2,"messages":[{"role":"system","content":system},{"role":"user","content":"请分析以下销售工作台数据：\n"+json.dumps(payload,ensure_ascii=False)}]}
+    req=http_request.Request(base_url+"/chat/completions",data=json.dumps(body,ensure_ascii=False).encode(),headers={"Authorization":"Bearer "+api_key,"Content-Type":"application/json"},method="POST")
+    try:
+        with http_request.urlopen(req,timeout=60) as res: response=json.loads(res.read().decode())
+    except http_error.HTTPError as exc:
+        raise RuntimeError(f"千问接口调用失败（HTTP {exc.code}）")
+    except (http_error.URLError, TimeoutError):
+        raise RuntimeError("千问接口连接失败，请检查 Render 网络和 AI_BASE_URL")
+    content=response.get("choices",[{}])[0].get("message",{}).get("content","")
+    if isinstance(content,list): content="".join(x.get("text","") for x in content if isinstance(x,dict))
+    content=content.strip().removeprefix("```json").removesuffix("```").strip()
+    try: result=json.loads(content)
+    except json.JSONDecodeError: raise RuntimeError("千问返回内容不是有效的结构化分析结果")
+    for key,default in (("summary","暂无总结"),("focus",[]),("questions",[]),("actions",[]),("data_gaps",[])):
+        result.setdefault(key,default)
+    return result
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_): pass
@@ -211,11 +235,25 @@ class Handler(BaseHTTPRequestHandler):
             if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以生成 AI 分析"},403); return
             d=read_json(self); target=d.get("target","team")
             with db() as c:
-                act=rows(c,"SELECT * FROM activities WHERE owner=?",(target,)) if target!="team" else rows(c,"SELECT * FROM activities")
-                rep=c.execute("SELECT COUNT(*) n FROM reports WHERE submitted=1").fetchone()["n"]
-            leads=sum(float(x["leads"] or 0) for x in act); deals=sum(float(x["deals"] or 0) for x in act); result={"target":target,"summary":f"{'团队' if target=='team' else target}登记活动 {len(act)} 次，产生线索 {int(leads)}，成交金额 ¥{deals:,.0f}。已提交周报 {rep} 份。","focus":[{"direction":"线索转化","finding":"有线索但暂无成交" if leads and not deals else "请持续更新客户阶段","action":"逐条补充决策人、下一步动作和完成日期。"},{"direction":"回款节点","finding":"成交项目需要确认回款","action":"下次周会前补充客户确认的回款日期和金额。"}],"questions":["这个项目下一步具体做什么、谁负责、何时完成？","当前阻塞点是什么，需要管理者提供什么支持？"],"actions":["下次周会前完成重点项目节点补充。","对有线索未成交活动建立逐条跟进记录。"]}
+                act=rows(c,"SELECT a.event_date date,a.event_type type,a.owner,a.cost,a.participants people,a.wechat,a.leads,a.deals,a.note,o.name target FROM activities a JOIN organizations o ON o.id=a.organization_id"+(" WHERE a.owner=?" if target!="team" else ""), (target,) if target!="team" else ())
+                if target=="team": rep_rows=rows(c,"SELECT user_name,report_date,payload FROM reports WHERE submitted=1 ORDER BY report_date DESC")
+                else: rep_rows=rows(c,"SELECT user_name,report_date,payload FROM reports WHERE submitted=1 AND user_name=? ORDER BY report_date DESC",(target,))
+            reports=[]
+            for r in rep_rows:
+                try: reports.append({"sales":r["user_name"],"date":r["report_date"],"content":json.loads(r["payload"])})
+                except (TypeError,ValueError,json.JSONDecodeError): pass
+            context={"target":"团队" if target=="team" else target,"reports":reports,"activities":act}
+            try: result=qwen_analyze(context)
+            except RuntimeError as exc: self.send_json({"error":str(exc)},502); return
+            result["target"]=target; result["generated_at"]=now()
             with db() as c: c.execute("INSERT INTO ai_analyses(target_key,report_date,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(target_key,report_date) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",(target,time.strftime("%Y-%m-%d"),json.dumps(result,ensure_ascii=False),now()))
             self.send_json(result); return
+        if path=="/api/ai/save":
+            actor=session_user(self)
+            if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以保存 AI 分析"},403); return
+            d=read_json(self); target=d.get("target","team"); note=d.get("note","")
+            with db() as c: c.execute("UPDATE ai_analyses SET manager_note=?,updated_at=? WHERE target_key=? AND report_date=?",(note,now(),target,time.strftime("%Y-%m-%d")))
+            self.send_json({"ok":True}); return
         self.send_json({"error":"not found"},404)
 
     def do_PUT(self):
