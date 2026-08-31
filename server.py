@@ -91,11 +91,13 @@ class Handler(BaseHTTPRequestHandler):
             with db() as c: data=rows(c,"SELECT id,username,display_name name,role,active FROM users ORDER BY id")
             self.send_json({"users":data}); return
         if path=="/api/bootstrap":
+            actor=session_user(self)
+            if not actor: self.send_json({"error":"未登录"},401); return
             with db() as c:
-                saved=c.execute("SELECT payload FROM app_state WHERE id=1").fetchone()
-                if saved:
-                    self.send_json(json.loads(saved["payload"])); return
-                org=rows(c,"SELECT * FROM organizations ORDER BY id DESC"); acts=rows(c,"SELECT a.*,o.name target FROM activities a JOIN organizations o ON o.id=a.organization_id ORDER BY event_date DESC");
+                owner_filter="" if actor["role"]=="admin" else " WHERE o.owner=?"
+                args=() if actor["role"]=="admin" else (actor["name"],)
+                org=rows(c,"SELECT * FROM organizations" + (" ORDER BY id DESC" if not owner_filter else " WHERE owner=? ORDER BY id DESC"), () if actor["role"]=="admin" else args)
+                acts=rows(c,"SELECT a.*,o.name target FROM activities a JOIN organizations o ON o.id=a.organization_id" + owner_filter + " ORDER BY event_date DESC",args)
                 for a in acts: a["followUps"]=rows(c,"SELECT follow_date date,wechat,leads,deals,note FROM followups WHERE activity_id=? ORDER BY id",(a["id"],))
                 reps=rows(c,"SELECT user_name,payload,submitted FROM reports ORDER BY report_date DESC"); reports={r["user_name"]:{**json.loads(r["payload"]),"submitted":bool(r["submitted"])} for r in reps}
                 people=rows(c,"SELECT display_name name FROM users WHERE role='sales' AND active=1 ORDER BY id")
@@ -155,6 +157,15 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"id":cur.lastrowid},201)
             except sqlite3.IntegrityError: self.send_json({"error":"同类型名称已存在"},409)
             return
+        if path.startswith("/api/organizations/"):
+            actor=session_user(self)
+            if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以修改基础信息"},403); return
+            oid=path.split("/")[3]; d=read_json(self)
+            try:
+                with db() as c: c.execute("UPDATE organizations SET name=?,owner=?,cost=?,key_name=?,key_phone=?,key_title=?,other_contact=?,other_phone=?,note=? WHERE id=?",(d["name"],d["owner"],d.get("cost",0),d.get("key",""),d.get("phone",""),d.get("title",""),d.get("other",""),d.get("otherPhone",""),d.get("note",""),oid))
+                self.send_json({"ok":True})
+            except sqlite3.IntegrityError: self.send_json({"error":"同类型名称已存在"},409)
+            return
         if path=="/api/activities":
             if not session_user(self): self.send_json({"error":"未登录"},401); return
             d=read_json(self)
@@ -164,9 +175,12 @@ class Handler(BaseHTTPRequestHandler):
                 cur=c.execute("INSERT INTO activities(kind,organization_id,event_date,event_type,owner,cost,participants,wechat,leads,deals,photos,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(d["kind"],o["id"],d["date"],d["type"],o["owner"],d.get("cost",0),d.get("people",0),d.get("wechat",0),d.get("leads",0),d.get("deals",0),d.get("photos",""),d.get("note",""),now()))
             self.send_json({"id":cur.lastrowid},201); return
         if path.startswith("/api/activities/") and path.endswith("/followups"):
-            if not session_user(self): self.send_json({"error":"未登录"},401); return
+            actor=session_user(self)
+            if not actor: self.send_json({"error":"未登录"},401); return
             aid=path.split("/")[3]; d=read_json(self)
             with db() as c:
+                activity=c.execute("SELECT owner FROM activities WHERE id=?",(aid,)).fetchone()
+                if not activity or (actor["role"]!="admin" and activity["owner"]!=actor["name"]): self.send_json({"error":"无权修改其他销售的跟进记录"},403); return
                 c.execute("INSERT INTO followups(activity_id,follow_date,wechat,leads,deals,note) VALUES(?,?,?,?,?,?)",(aid,d.get("date",now()[:10]),d.get("wechat",0),d.get("leads",0),d.get("deals",0),d.get("note","")))
                 c.execute("UPDATE activities SET wechat=wechat+?,leads=leads+?,deals=deals+? WHERE id=?",(d.get("wechat",0),d.get("leads",0),d.get("deals",0),aid))
             self.send_json({"ok":True}); return
@@ -186,6 +200,9 @@ class Handler(BaseHTTPRequestHandler):
             with db() as c: c.execute("INSERT INTO ai_analyses(target_key,report_date,payload,updated_at) VALUES(?,?,?,?) ON CONFLICT(target_key,report_date) DO UPDATE SET payload=excluded.payload,updated_at=excluded.updated_at",(target,time.strftime("%Y-%m-%d"),json.dumps(result,ensure_ascii=False),now()))
             self.send_json(result); return
         self.send_json({"error":"not found"},404)
+
+    def do_PUT(self):
+        return self.do_POST()
 
 if __name__=="__main__":
     init(); print(f"销售工作台运行中：http://{HOST}:{PORT}"); ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
