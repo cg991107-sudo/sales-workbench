@@ -10,6 +10,7 @@ DATA_DIR = Path(os.getenv("SALES_WORKBENCH_DATA_DIR", str(ROOT)))
 DB = DATA_DIR / "sales_workbench.sqlite3"
 UPLOADS = DATA_DIR / "uploads"
 PORT = int(os.getenv("SALES_WORKBENCH_PORT", "4173"))
+HOST = os.getenv("SALES_WORKBENCH_HOST", "0.0.0.0")
 SESSIONS = {}
 BOOTSTRAP_PASSWORD = os.getenv("SALES_WORKBENCH_BOOTSTRAP_PASSWORD") or secrets.token_urlsafe(12)
 
@@ -163,4 +164,4 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"error":"not found"},404)
 
 if __name__=="__main__":
-    init(); print(f"销售工作台运行中：http://127.0.0.1:{PORT}"); ThreadingHTTPServer(("127.0.0.1",PORT),Handler).serve_forever()
+    init(); print(f"销售工作台运行中：http://{HOST}:{PORT}"); ThreadingHTTPServer((HOST,PORT),Handler).serve_forever()
