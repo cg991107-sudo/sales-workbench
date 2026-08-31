@@ -97,7 +97,11 @@ class Handler(BaseHTTPRequestHandler):
                 owner_filter="" if actor["role"]=="admin" else " WHERE o.owner=?"
                 args=() if actor["role"]=="admin" else (actor["name"],)
                 org=rows(c,"SELECT * FROM organizations" + (" ORDER BY id DESC" if not owner_filter else " WHERE owner=? ORDER BY id DESC"), () if actor["role"]=="admin" else args)
+                for o in org:
+                    o.update(key=o.get("key_name", ""), phone=o.get("key_phone", ""), title=o.get("key_title", ""), other=o.get("other_contact", ""), otherPhone=o.get("other_phone", ""))
                 acts=rows(c,"SELECT a.*,o.name target FROM activities a JOIN organizations o ON o.id=a.organization_id" + owner_filter + " ORDER BY event_date DESC",args)
+                for a in acts:
+                    a.update(date=a.get("event_date", ""), type=a.get("event_type", ""), people=a.get("participants", 0))
                 for a in acts: a["followUps"]=rows(c,"SELECT follow_date date,wechat,leads,deals,note FROM followups WHERE activity_id=? ORDER BY id",(a["id"],))
                 reps=rows(c,"SELECT user_name,payload,submitted FROM reports ORDER BY report_date DESC"); reports={r["user_name"]:{**json.loads(r["payload"]),"submitted":bool(r["submitted"])} for r in reps}
                 people=rows(c,"SELECT display_name name FROM users WHERE role='sales' AND active=1 ORDER BY id")
@@ -106,7 +110,10 @@ class Handler(BaseHTTPRequestHandler):
             p=(UPLOADS/path.removeprefix("/uploads/")).resolve()
             if UPLOADS in p.parents and p.exists(): self.send_file(p); return
         if path=="/api/export":
-            with db() as c: data=rows(c,"SELECT a.kind,o.name target,a.event_date,a.event_type,a.owner,a.cost,a.participants,a.wechat,a.leads,a.deals,a.photos,a.note FROM activities a JOIN organizations o ON o.id=a.organization_id ORDER BY event_date DESC")
+            actor=session_user(self)
+            if not actor: self.send_json({"error":"未登录"},401); return
+            with db() as c:
+                data=rows(c,"SELECT a.kind,o.name target,a.event_date,a.event_type,a.owner,a.cost,a.participants,a.wechat,a.leads,a.deals,a.photos,a.note FROM activities a JOIN organizations o ON o.id=a.organization_id"+(" ORDER BY event_date DESC" if actor["role"]=="admin" else " WHERE a.owner=? ORDER BY event_date DESC"),() if actor["role"]=="admin" else (actor["name"],))
             out=io.StringIO(); w=csv.DictWriter(out,fieldnames=data[0].keys() if data else ["kind","target"]); w.writeheader(); w.writerows(data); raw=("\ufeff"+out.getvalue()).encode(); self.send_response(200); self.send_header("Content-Type","text/csv; charset=utf-8"); self.send_header("Content-Disposition","attachment; filename=sales-workbench.csv"); self.send_header("Content-Length",str(len(raw))); self.end_headers(); self.wfile.write(raw); return
         rel="index.html" if path in ("/","/index.html") else path.lstrip("/"); p=(ROOT/rel).resolve()
         if ROOT in p.parents and p.exists() and p.is_file(): self.send_file(p); return
@@ -158,6 +165,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"id":cur.lastrowid},201)
             except sqlite3.IntegrityError: self.send_json({"error":"同类型名称已存在"},409)
             return
+        if path.startswith("/api/organizations/") and path.endswith("/deactivate"):
+            actor=session_user(self)
+            if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以停用基础信息"},403); return
+            oid=path.split("/")[3]
+            with db() as c: c.execute("UPDATE organizations SET active=0 WHERE id=?",(oid,))
+            self.send_json({"ok":True}); return
         if path.startswith("/api/organizations/"):
             actor=session_user(self)
             if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以修改基础信息"},403); return
@@ -168,11 +181,13 @@ class Handler(BaseHTTPRequestHandler):
             except sqlite3.IntegrityError: self.send_json({"error":"同类型名称已存在"},409)
             return
         if path=="/api/activities":
-            if not session_user(self): self.send_json({"error":"未登录"},401); return
+            actor=session_user(self)
+            if not actor: self.send_json({"error":"未登录"},401); return
             d=read_json(self)
             with db() as c:
                 o=c.execute("SELECT id,owner FROM organizations WHERE kind=? AND name=? AND active=1",(d["kind"],d["target"])).fetchone()
                 if not o: self.send_json({"error":"基础信息不存在或已停用"},400); return
+                if actor["role"]!="admin" and o["owner"]!=actor["name"]: self.send_json({"error":"销售只能登记自己负责对象的活动"},403); return
                 cur=c.execute("INSERT INTO activities(kind,organization_id,event_date,event_type,owner,cost,participants,wechat,leads,deals,photos,note,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",(d["kind"],o["id"],d["date"],d["type"],o["owner"],d.get("cost",0),d.get("people",0),d.get("wechat",0),d.get("leads",0),d.get("deals",0),d.get("photos",""),d.get("note",""),now()))
             self.send_json({"id":cur.lastrowid},201); return
         if path.startswith("/api/activities/") and path.endswith("/followups"):
@@ -186,8 +201,9 @@ class Handler(BaseHTTPRequestHandler):
                 c.execute("UPDATE activities SET wechat=wechat+?,leads=leads+?,deals=deals+? WHERE id=?",(d.get("wechat",0),d.get("leads",0),d.get("deals",0),aid))
             self.send_json({"ok":True}); return
         if path=="/api/reports":
-            if not session_user(self): self.send_json({"error":"未登录"},401); return
-            d=read_json(self); user=d["user"]; date=d.get("date",time.strftime("%Y-%m-%d")); payload=json.dumps(d.get("payload",{}),ensure_ascii=False)
+            actor=session_user(self)
+            if not actor: self.send_json({"error":"未登录"},401); return
+            d=read_json(self); user=d.get("user") if actor["role"]=="admin" else actor["name"]; date=d.get("date",time.strftime("%Y-%m-%d")); payload=json.dumps(d.get("payload",{}),ensure_ascii=False)
             with db() as c: c.execute("INSERT INTO reports(user_name,report_date,payload,submitted,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(user_name,report_date) DO UPDATE SET payload=excluded.payload,submitted=excluded.submitted,updated_at=excluded.updated_at",(user,date,payload,int(bool(d.get("submitted"))),now()))
             self.send_json({"ok":True}); return
         if path=="/api/ai/analyze":
