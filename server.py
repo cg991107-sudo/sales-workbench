@@ -152,6 +152,7 @@ class Handler(BaseHTTPRequestHandler):
             actor=session_user(self)
             if not actor or actor["role"]!="admin": self.send_json({"error":"只有管理员可以维护基础信息"},403); return
             d=read_json(self)
+            d["kind"]={"associations":"association","partners":"partner"}.get(d.get("kind"),d.get("kind"))
             try:
                 with db() as c: cur=c.execute("INSERT INTO organizations(kind,name,owner,cost,key_name,key_phone,key_title,other_contact,other_phone,note) VALUES(?,?,?,?,?,?,?,?,?,?)",(d["kind"],d["name"],d["owner"],d.get("cost",0),d.get("key",""),d.get("phone",""),d.get("title",""),d.get("other",""),d.get("otherPhone",""),d.get("note","")))
                 self.send_json({"id":cur.lastrowid},201)
