@@ -22,22 +22,45 @@ CREATE TABLE IF NOT EXISTS activities (id INTEGER PRIMARY KEY AUTOINCREMENT, kin
 CREATE TABLE IF NOT EXISTS followups (id INTEGER PRIMARY KEY AUTOINCREMENT, activity_id INTEGER NOT NULL, follow_date TEXT NOT NULL, wechat INTEGER NOT NULL DEFAULT 0, leads INTEGER NOT NULL DEFAULT 0, deals REAL NOT NULL DEFAULT 0, note TEXT, FOREIGN KEY(activity_id) REFERENCES activities(id));
 CREATE TABLE IF NOT EXISTS reports (id INTEGER PRIMARY KEY AUTOINCREMENT, user_name TEXT NOT NULL, report_date TEXT NOT NULL, payload TEXT NOT NULL, submitted INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL, UNIQUE(user_name,report_date));
 CREATE TABLE IF NOT EXISTS ai_analyses (id INTEGER PRIMARY KEY AUTOINCREMENT, target_key TEXT NOT NULL, report_date TEXT NOT NULL, payload TEXT NOT NULL, manager_note TEXT, updated_at TEXT NOT NULL, UNIQUE(target_key,report_date));
+CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 def now(): return time.strftime("%Y-%m-%dT%H:%M:%S")
 def db():
     conn=sqlite3.connect(DB); conn.row_factory=sqlite3.Row; conn.execute("PRAGMA foreign_keys=ON"); return conn
+def clear_legacy_demo_data(c):
+    """Remove the original prototype records once, while preserving later user data."""
+    if c.execute("SELECT 1 FROM app_meta WHERE key='demo_cleanup_v1'").fetchone():
+        return
+    demo_names = ("浙江省数字经济协会", "云启科技")
+    demo_users = ("wangxiao", "lining", "chenchen", "ayu", "beiyao")
+    orgs = c.execute("SELECT id FROM organizations WHERE name IN (?,?)", demo_names).fetchall()
+    ids = [row[0] for row in orgs]
+    if ids:
+        marks = ",".join("?" for _ in ids)
+        c.execute(f"DELETE FROM followups WHERE activity_id IN (SELECT id FROM activities WHERE organization_id IN ({marks}))", ids)
+        c.execute(f"DELETE FROM activities WHERE organization_id IN ({marks})", ids)
+        c.execute(f"DELETE FROM organizations WHERE id IN ({marks})", ids)
+    c.execute("DELETE FROM users WHERE username IN (?,?,?,?,?)", demo_users)
+    saved = c.execute("SELECT payload FROM app_state WHERE id=1").fetchone()
+    if saved:
+        try:
+            payload = json.loads(saved[0])
+            names = {x.get("name") for x in payload.get("associations", []) + payload.get("partners", [])}
+            if names.issubset(set(demo_names)) and not payload.get("activities") and not payload.get("reports"):
+                c.execute("DELETE FROM app_state WHERE id=1")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            pass
+    c.execute("INSERT OR REPLACE INTO app_meta(key,value) VALUES('demo_cleanup_v1','done')")
+
 def init():
     UPLOADS.mkdir(exist_ok=True)
     with db() as c:
         c.executescript(SCHEMA)
+        clear_legacy_demo_data(c)
         if not c.execute("SELECT 1 FROM users LIMIT 1").fetchone():
             c.execute("INSERT INTO users(username,display_name,role,password_hash) VALUES(?,?,?,?)",("admin","管理员","admin",hashlib.sha256(BOOTSTRAP_PASSWORD.encode()).hexdigest()))
-            for u,n in [("wangxiao","王晓"),("lining","李宁"),("chenchen","陈晨"),("ayu","阿雨"),("beiyao","北尧")]: c.execute("INSERT INTO users(username,display_name,role,password_hash) VALUES(?,?,?,?)",(u,n,"sales",hashlib.sha256(BOOTSTRAP_PASSWORD.encode()).hexdigest()))
             print(f"首次启动账号：admin；初始密码：{BOOTSTRAP_PASSWORD}")
-        if not c.execute("SELECT 1 FROM organizations LIMIT 1").fetchone():
-            c.execute("INSERT INTO organizations(kind,name,owner,cost,key_name,key_title,note) VALUES(?,?,?,?,?,?,?)",("association","浙江省数字经济协会","王晓",20000,"周敏","秘书长","重点协会"))
-            c.execute("INSERT INTO organizations(kind,name,owner,cost,key_name,key_title,note) VALUES(?,?,?,?,?,?,?)",("partner","云启科技","李宁",15000,"张扬","CEO","重点生态伙伴"))
 def read_json(h):
     n=int(h.headers.get("Content-Length",0)); return json.loads(h.rfile.read(n) or b"{}")
 def rows(conn,sql,args=()): return [dict(x) for x in conn.execute(sql,args).fetchall()]
@@ -75,7 +98,8 @@ class Handler(BaseHTTPRequestHandler):
                 org=rows(c,"SELECT * FROM organizations ORDER BY id DESC"); acts=rows(c,"SELECT a.*,o.name target FROM activities a JOIN organizations o ON o.id=a.organization_id ORDER BY event_date DESC");
                 for a in acts: a["followUps"]=rows(c,"SELECT follow_date date,wechat,leads,deals,note FROM followups WHERE activity_id=? ORDER BY id",(a["id"],))
                 reps=rows(c,"SELECT user_name,payload,submitted FROM reports ORDER BY report_date DESC"); reports={r["user_name"]:{**json.loads(r["payload"]),"submitted":bool(r["submitted"])} for r in reps}
-                self.send_json({"associations":[x for x in org if x["kind"]=="association"],"partners":[x for x in org if x["kind"]=="partner"],"activities":acts,"reports":reports}); return
+                people=rows(c,"SELECT display_name name FROM users WHERE role='sales' AND active=1 ORDER BY id")
+                self.send_json({"associations":[x for x in org if x["kind"]=="association"],"partners":[x for x in org if x["kind"]=="partner"],"activities":acts,"reports":reports,"people":[x["name"] for x in people]}); return
         if path.startswith("/uploads/"):
             p=(UPLOADS/path.removeprefix("/uploads/")).resolve()
             if UPLOADS in p.parents and p.exists(): self.send_file(p); return

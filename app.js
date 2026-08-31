@@ -1,7 +1,9 @@
 const KEY='sales-workbench-data'; const API=location.protocol==='http:'||location.protocol==='https:';
-const seed={associations:[{name:'浙江省数字经济协会',owner:'王晓',cost:20000,key:'周敏',phone:'13800000001',title:'秘书长',other:'李主任',otherPhone:'13800000002',note:'重点协会',active:true}],partners:[{name:'云启科技',owner:'李宁',cost:15000,key:'张扬',phone:'13800000003',title:'CEO',other:'王工',otherPhone:'13800000004',note:'重点生态伙伴',active:true}],activities:[],reports:{}};
-let db=JSON.parse(localStorage.getItem(KEY)||'null')||seed; let page='dashboard',role='admin',user='王晓';
-const people=['王晓','李宁','陈晨','阿雨','北尧']; const owners=()=>[...new Set([...people,...db.activities.map(x=>x.owner).filter(Boolean),...db.associations.map(x=>x.owner),...db.partners.map(x=>x.owner)])]; let dashFilter={kind:'全部对象',owner:'全部销售',assoc:'全部协会'};
+const seed={associations:[],partners:[],activities:[],reports:{},people:[]};
+const stored=JSON.parse(localStorage.getItem(KEY)||'null');
+const legacyDemo=stored&&(stored.associations||[]).concat(stored.partners||[]).some(x=>['浙江省数字经济协会','云启科技'].includes(x.name));
+let db=legacyDemo?seed:(stored||seed); if(legacyDemo)localStorage.removeItem(KEY); let page='dashboard',role='admin',user='';
+let people=db.people||[]; const owners=()=>[...new Set([...people,...db.activities.map(x=>x.owner).filter(Boolean),...db.associations.map(x=>x.owner),...db.partners.map(x=>x.owner)])]; let dashFilter={kind:'全部对象',owner:'全部销售',assoc:'全部协会'};
 const aTypes=['企业参访','小型沙龙','讲座活动','主办活动','大型活动及晚宴','关键人拜访','关键人招待','官方软文推送'];
 const pTypes=['日常拜访','协同会议','伙伴活动参与'];
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -42,5 +44,5 @@ document.querySelectorAll('.nav button[data-page]').forEach(button=>button.addEv
 window.openWeeklyReport=()=>{page='weekly-form';render();document.getElementById('content')?.scrollTo?.(0,0)};
 document.addEventListener('click',e=>{const a=e.target.closest('[data-action]');if(!a)return;if(a.dataset.action==='new-user')userModal();if(a.dataset.action==='deactivate-user'&&confirm('确认停用这个账号？'))fetch('/api/users/'+a.dataset.id+'/deactivate',{method:'POST'}).then(()=>loadUsers());if(a.dataset.action==='logout')fetch('/api/logout',{method:'POST'}).finally(()=>location.reload())});
 document.addEventListener('submit',async e=>{if(e.target.id==='login-form'){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});if(!r.ok){const x=await r.json();loginPage(x.error||'登录失败');return}location.reload()}if(e.target.dataset.form==='user'){e.preventDefault();const d=Object.fromEntries(new FormData(e.target));const r=await fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});const x=await r.json();if(!r.ok){toast(x.error||'创建失败');return}document.getElementById('modal').classList.add('hidden');loadUsers();toast('账号已创建')}});
-async function boot(){if(!API){render();return}const me=await fetch('/api/me');if(!me.ok){loginPage();return}const m=await me.json();user=m.user.name;role=m.user.role;document.getElementById('user-name').textContent=user;document.getElementById('avatar').textContent=user.slice(0,1);if(role!=='admin')document.getElementById('users-nav')?.remove();const b=await fetch('/api/bootstrap');if(b.ok){db=await b.json();localStorage.setItem(KEY,JSON.stringify(db))}render()}
+async function boot(){if(!API){render();return}const me=await fetch('/api/me');if(!me.ok){loginPage();return}const m=await me.json();user=m.user.name;role=m.user.role;document.getElementById('user-name').textContent=user;document.getElementById('avatar').textContent=user.slice(0,1);if(role!=='admin')document.getElementById('users-nav')?.remove();const b=await fetch('/api/bootstrap');if(b.ok){db=await b.json();people=db.people||[];localStorage.setItem(KEY,JSON.stringify(db))}render()}
 boot();
