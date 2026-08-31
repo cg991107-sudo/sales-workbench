@@ -78,7 +78,7 @@ def qwen_analyze(payload):
     if not api_key: raise RuntimeError("未配置千问 API Key，请在 Render 环境变量中配置 DASHSCOPE_API_KEY")
     base_url=os.getenv("AI_BASE_URL","https://dashscope.aliyuncs.com/compatible-mode/v1").rstrip("/")
     model=os.getenv("AI_MODEL","qwen-plus")
-    system="""你是销售管理者的经营分析助手。只能依据输入数据分析，不得编造客户、金额、日期或项目进展。请输出严格 JSON，不要 Markdown 代码块，结构为：summary（字符串）、focus（数组，每项含 direction/finding/action/evidence）、questions（字符串数组）、actions（字符串数组）、data_gaps（字符串数组）。重点回答管理者应该关注什么、为什么关注、下一步怎么管。"""
+    system="""你是销售管理者的经营分析助手。只能依据输入数据分析，不得编造客户、金额、日期或项目进展。必须使用简体中文回答，所有字符串内容都必须是自然中文；禁止出现 activities、leads、deals、event_date、report_date 等英文变量名、数据库字段名、JSON路径、代码、英文缩写或 Markdown 代码块。请输出严格 JSON，结构为：summary（字符串）、focus（数组，每项含 direction/finding/action/evidence），questions（字符串数组）、actions（字符串数组）、data_gaps（字符串数组）。其中“evidence”必须用中文描述真实的数据依据，例如“本周登记2次协会活动，产生线索3条”，不得写成技术字段或英文表达。重点回答管理者应该关注什么、为什么关注、下一步怎么管。"""
     body={"model":model,"temperature":0.2,"messages":[{"role":"system","content":system},{"role":"user","content":"请分析以下销售工作台数据：\n"+json.dumps(payload,ensure_ascii=False)}]}
     req=http_request.Request(base_url+"/chat/completions",data=json.dumps(body,ensure_ascii=False).encode(),headers={"Authorization":"Bearer "+api_key,"Content-Type":"application/json"},method="POST")
     try:
@@ -240,9 +240,10 @@ class Handler(BaseHTTPRequestHandler):
                 else: rep_rows=rows(c,"SELECT user_name,report_date,payload FROM reports WHERE submitted=1 AND user_name=? ORDER BY report_date DESC",(target,))
             reports=[]
             for r in rep_rows:
-                try: reports.append({"sales":r["user_name"],"date":r["report_date"],"content":json.loads(r["payload"])})
+                try: reports.append({"销售":r["user_name"],"周报日期":r["report_date"],"周报内容":json.loads(r["payload"])})
                 except (TypeError,ValueError,json.JSONDecodeError): pass
-            context={"target":"团队" if target=="team" else target,"reports":reports,"activities":act}
+            activity_context=[{"对象":x.get("target",""),"日期":x.get("date",""),"活动类型":x.get("type",""),"跟进销售":x.get("owner",""),"活动成本":x.get("cost",0),"参与人数":x.get("people",0),"添加微信数量":x.get("wechat",0),"产生线索数量":x.get("leads",0),"成交金额":x.get("deals",0),"活动说明":x.get("note","")} for x in act]
+            context={"分析对象":"团队" if target=="team" else target,"周报记录":reports,"活动记录":activity_context}
             try: result=qwen_analyze(context)
             except RuntimeError as exc: self.send_json({"error":str(exc)},502); return
             result["target"]=target; result["generated_at"]=now()
